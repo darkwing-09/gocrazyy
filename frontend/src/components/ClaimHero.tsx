@@ -149,6 +149,10 @@ export const ClaimHero = forwardRef<ClaimHeroHandle, Props>(function ClaimHero(
         contact_phone: contactPhone.trim() || null,
       })
       if (claim.mode === 'upi_gateway') {
+        if (claim.payment_url) {
+          window.location.href = claim.payment_url
+          return
+        }
         setCheckout({ kind: 'upi', claim })
       } else if (claim.mode === 'razorpay' && claim.key_id) {
         setCheckout({ kind: 'waiting', claim })
