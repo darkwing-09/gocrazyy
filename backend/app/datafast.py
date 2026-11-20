@@ -20,7 +20,7 @@ last_error: str | None = None
 resolved_site: dict | None = None  # public fields only: domain + tracking id
 # The tracking id the site's <script> reports to (frontend/index.html). Used when
 # DATAFAST_WEBSITE_ID is unset, so the API reads the same website the script writes to.
-SCRIPT_TRACKING_ID = "dfid_Ah4BhqUS8PmdW5Mw8XwOv"  # non-secret, surfaced by /api/health for diagnosis
+SCRIPT_TRACKING_ID = "dfid_zyGL2M6X0gnonXugQWGKZ"  # non-secret, surfaced by /api/health for diagnosis
 
 
 def _clean(v: str) -> str:
