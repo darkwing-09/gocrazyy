@@ -92,6 +92,33 @@ export const ClaimHero = forwardRef<ClaimHeroHandle, Props>(function ClaimHero(
     onAmountChange?.(amount)
   }, [amount]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-fetch and poll for pending orders every 10 seconds so it never misses
+  useEffect(() => {
+    let timer: any = null
+    const checkPendingOrder = async () => {
+      try {
+        const stored = localStorage.getItem('gocrazy_pending_order')
+        if (!stored) return
+        const parsed = JSON.parse(stored)
+        if (!parsed.order_id || Date.now() - (parsed.created_at || 0) > 2 * 60 * 60 * 1000) {
+          localStorage.removeItem('gocrazy_pending_order')
+          return
+        }
+        const status = await api.checkStatus(parsed.order_id)
+        if (status.paid) {
+          localStorage.removeItem('gocrazy_pending_order')
+          onPaid()
+        }
+      } catch {}
+    }
+
+    checkPendingOrder()
+    timer = setInterval(checkPendingOrder, 10000)
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [onPaid])
+
   // Live quote
   useEffect(() => {
     if (amount === null) return
@@ -151,6 +178,17 @@ export const ClaimHero = forwardRef<ClaimHeroHandle, Props>(function ClaimHero(
       })
       if (claim.mode === 'upi_gateway') {
         if (claim.payment_url) {
+          try {
+            localStorage.setItem(
+              'gocrazy_pending_order',
+              JSON.stringify({
+                order_id: claim.order_id,
+                domain: claim.listing.domain,
+                amount_paise: claim.amount_paise,
+                created_at: Date.now(),
+              })
+            )
+          } catch {}
           window.location.href = claim.payment_url
           return
         }
