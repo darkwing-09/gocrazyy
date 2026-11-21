@@ -179,9 +179,57 @@ def debug_db(db: Session = Depends(get_db)):
     }
 
 
+_last_reconcile_time = 0.0
+
+
+def _reconcile_pending_orders(db: Session, max_orders: int = 5) -> None:
+    """Finds recent pending orders and checks with AvinyaPay if they were paid,
+    ensuring projects are always listed even if the user closed the checkout page."""
+    global _last_reconcile_time
+    now = time.time()
+    if now - _last_reconcile_time < 10.0:
+        return
+    _last_reconcile_time = now
+
+    if settings.payments_mode != "upi_gateway":
+        return
+
+    try:
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+        captured_subq = select(Payment.provider_order_id).where(Payment.provider_order_id.is_not(None))
+        unpaid_orders = db.execute(
+            select(Order)
+            .where(
+                Order.provider_order_id.is_not(None),
+                Order.created_at >= recent_cutoff,
+                ~Order.provider_order_id.in_(captured_subq),
+            )
+            .order_by(Order.id.desc())
+            .limit(max_orders)
+        ).scalars().all()
+
+        captured_any = False
+        for order in unpaid_orders:
+            data = upi.fetch_order(order.provider_order_id)
+            if data and data.get("status") == "paid":
+                amount = int(round(float(data.get("amount", 0)) * 100)) or order.amount_paise
+                pay_id = data.get("utr") or f"upi_{order.provider_order_id}"
+                pay, created = record_capture(db, payment_id=pay_id, order_id=order.provider_order_id,
+                                              amount_paise=amount, method="upi", source="auto_reconcile")
+                if created:
+                    captured_any = True
+                    log.info("Auto-reconciled paid order %s for listing %s", order.provider_order_id, order.listing_id)
+
+        if captured_any:
+            _bust_caches()
+    except Exception as e:
+        log.warning("Pending order auto-reconcile check failed: %s", e)
+
+
 @app.get("/api/board")
 def board(board: Literal["alltime", "today", "deals", "daily"] = "alltime", category: str | None = None,
           day: date | None = None, page: int = Query(1, ge=1), db: Session = Depends(get_db)):
+    _reconcile_pending_orders(db)
     rows = boards.ranked(db, board, category, day)
     total = len(rows)
     start = (page - 1) * PAGE_SIZE
@@ -207,6 +255,7 @@ def _bust_caches() -> None:
 def home(response: Response, category: str | None = None, db: Session = Depends(get_db)):
     """Everything the home / category page needs in one round-trip."""
     global _home_cache
+    _reconcile_pending_orders(db)
     now = time.time()
     response.headers["Cache-Control"] = "no-store"
     ck = category or ""
@@ -549,6 +598,7 @@ async def check_payment_status(order_id: str, db: Session = Depends(get_db)):
             pay_id = data.get("utr") or f"upi_{order_id}"
             pay, created = record_capture(db, payment_id=pay_id, order_id=order_id,
                                           amount_paise=amount, method="upi", source="poll")
+            _bust_caches()
             await _send_datafast(db, pay, order)
             res = _result(db, pay)
             return {"paid": True, "status": "paid", **res}
@@ -572,6 +622,7 @@ async def mock_capture(order_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/webhooks/upi")
+@app.post("/api/webhooks/upi")
 async def upi_gateway_webhook(request: Request, db: Session = Depends(get_db),
                               x_signature: str = Header(default=""),
                               x_event_id: str = Header(default="")):
