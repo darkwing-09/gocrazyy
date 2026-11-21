@@ -146,7 +146,8 @@ export const ClaimHero = forwardRef<ClaimHeroHandle, Props>(function ClaimHero(
         stage: stage.trim() || null,
         twitter: twitter.trim() || null,
         linkedin: linkedin.trim() || null,
-        contact_phone: contactPhone.trim() || null,
+        contact_phone: phoneDigits ? `+91${phoneDigits}` : (contactPhone.trim() || null),
+        phone: phoneDigits ? `+91${phoneDigits}` : (contactPhone.trim() || null),
       })
       if (claim.mode === 'upi_gateway') {
         if (claim.payment_url) {

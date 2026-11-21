@@ -414,6 +414,7 @@ class ClaimIn(BaseModel):
     location: str | None = Field(default=None, max_length=120)
     stage: str | None = Field(default=None, max_length=60)
     contact_phone: str | None = Field(default=None, max_length=50)
+    phone: str | None = Field(default=None, max_length=50)
 
 
 @app.post("/api/claims")
@@ -457,8 +458,9 @@ async def create_claim(body: ClaimIn, db: Session = Depends(get_db)):
             listing_.location = body.location.strip() or None
         if body.stage is not None:
             listing_.stage = body.stage.strip() or None
-        if body.contact_phone is not None:
-            listing_.contact_phone = body.contact_phone.strip() or None
+        resolved_phone = (body.phone or body.contact_phone or "").strip() or None
+        if resolved_phone is not None:
+            listing_.contact_phone = resolved_phone
         if body.email:
             listing_.contact_email = body.email.strip()
     else:
@@ -466,6 +468,7 @@ async def create_claim(body: ClaimIn, db: Session = Depends(get_db)):
         slug = base.lower().replace(" ", "-")[:120]
         while db.execute(select(Listing).where(Listing.slug == slug)).scalar_one_or_none():
             slug = f"{base[:110]}-{secrets.token_hex(2)}"
+        resolved_phone = (body.phone or body.contact_phone or "").strip() or None
         listing_ = Listing(
             slug=slug, url=meta_["url"], domain=meta_["domain"], handle=meta_["handle"],
             title=meta_["title"], description=meta_["description"], favicon=meta_["favicon"],
@@ -475,7 +478,7 @@ async def create_claim(body: ClaimIn, db: Session = Depends(get_db)):
             linkedin=(body.linkedin or "").strip() or None,
             location=(body.location or "").strip() or None,
             stage=(body.stage or "").strip() or None,
-            contact_phone=(body.contact_phone or "").strip() or None,
+            contact_phone=resolved_phone,
         )
         db.add(listing_)
         db.flush()
@@ -491,7 +494,7 @@ async def create_claim(body: ClaimIn, db: Session = Depends(get_db)):
             amount_paise=body.amount_paise,
             client_order_id=client_order_id,
             email=body.email or "",
-            mobile=body.contact_phone or "",
+            mobile=resolved_phone or "",
             note=f"GoCrazy rank claim - {listing_.domain}",
         )
         provider_order_id = upi_res["id"]
